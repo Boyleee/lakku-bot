@@ -21,6 +21,12 @@
 
 После сохранения дождитесь завершения build/deploy.
 
+Важно:
+- Текущий `Dockerfile` поддерживает оба варианта context:
+  - `.` (корень репозитория)
+  - `services/runpod-worker`
+- Ошибка вида `runpod/pytorch:...: not found` означает невалидный тег базового образа. В текущем репозитории уже используется рабочий тег.
+
 ## 3. Подключите endpoint к VPS части (bot + backend)
 На VPS в `.env`:
 - `RUNPOD_API_KEY=<ваш runpod api key>`
