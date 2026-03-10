@@ -23,10 +23,15 @@ class BackendClient:
         self._base_url = base_url
 
     async def submit_job(self, payload: dict[str, Any]) -> str:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
-            response = await client.post(f"{self._base_url}/api/v1/jobs", json=payload)
-            response.raise_for_status()
-            data = response.json()
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(60)) as client:
+                response = await client.post(f"{self._base_url}/api/v1/jobs", json=payload)
+                response.raise_for_status()
+                data = response.json()
+        except httpx.TimeoutException as exc:
+            raise BackendApiError("Timeout при отправке задачи в backend.") from exc
+        except httpx.HTTPError as exc:
+            raise BackendApiError(f"Ошибка backend при отправке задачи: {exc}") from exc
 
         job_id = data.get("job_id")
         if not isinstance(job_id, str):
@@ -34,10 +39,15 @@ class BackendClient:
         return job_id
 
     async def get_job_status(self, job_id: str) -> JobStatus:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(30)) as client:
-            response = await client.get(f"{self._base_url}/api/v1/jobs/{job_id}")
-            response.raise_for_status()
-            data = response.json()
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(60)) as client:
+                response = await client.get(f"{self._base_url}/api/v1/jobs/{job_id}")
+                response.raise_for_status()
+                data = response.json()
+        except httpx.TimeoutException as exc:
+            raise BackendApiError("Timeout при получении статуса задачи из backend.") from exc
+        except httpx.HTTPError as exc:
+            raise BackendApiError(f"Ошибка backend при получении статуса: {exc}") from exc
 
         status = data.get("status")
         if not isinstance(status, str):
@@ -51,7 +61,12 @@ class BackendClient:
         )
 
     async def download_video(self, job_id: str) -> bytes:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(300)) as client:
-            response = await client.get(f"{self._base_url}/api/v1/jobs/{job_id}/video")
-            response.raise_for_status()
-            return response.content
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(900)) as client:
+                response = await client.get(f"{self._base_url}/api/v1/jobs/{job_id}/video")
+                response.raise_for_status()
+                return response.content
+        except httpx.TimeoutException as exc:
+            raise BackendApiError("Timeout при скачивании видео из backend.") from exc
+        except httpx.HTTPError as exc:
+            raise BackendApiError(f"Ошибка backend при скачивании видео: {exc}") from exc

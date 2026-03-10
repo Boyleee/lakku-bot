@@ -4,11 +4,11 @@ import asyncio
 import base64
 import io
 import logging
-import time
 from typing import Final
 
 from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
 from telegram.constants import ChatAction
+from telegram.error import TimedOut
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -54,6 +54,13 @@ DATA_DURATION: Final[str] = "duration_seconds"
 DATA_FPS: Final[str] = "fps"
 DATA_STEPS: Final[str] = "inference_steps"
 DATA_QUALITY: Final[str] = "video_quality"
+SKIP_ALL_PATTERN: Final[str] = r"^/skip-all(?:@[\w_]+)?$"
+
+TELEGRAM_CONNECT_TIMEOUT: Final[int] = 60
+TELEGRAM_POOL_TIMEOUT: Final[int] = 60
+TELEGRAM_READ_TIMEOUT: Final[int] = 1200
+TELEGRAM_WRITE_TIMEOUT: Final[int] = 1200
+TELEGRAM_MEDIA_WRITE_TIMEOUT: Final[int] = 1200
 
 settings = Settings.from_env()
 backend_client = BackendClient(settings.backend_base_url)
@@ -125,6 +132,7 @@ async def start(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         "Этот бот генерирует видео через Wan2.2 I2V (RunPod).\n"
         "Команды:\n"
         "/generate - создать видео\n"
+        "/skip-all - после загрузки фото сразу проставить остальные параметры по умолчанию\n"
         "/cancel - отменить текущий диалог"
     )
 
@@ -160,7 +168,8 @@ async def receive_input_image(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data[DATA_INPUT_IMAGE] = image_b64
     await update.message.reply_text(
         "Шаг 2/7. Введите промпт.\n"
-        f"Можно /skip для значения по умолчанию:\n`{DEFAULT_PROMPT_I2V}`",
+        f"Можно /skip для значения по умолчанию:\n`{DEFAULT_PROMPT_I2V}`\n"
+        "Или /skip-all, чтобы сразу запустить генерацию с дефолтами.",
         parse_mode="Markdown",
     )
     return WAIT_PROMPT
@@ -336,6 +345,67 @@ def _build_backend_payload(data: dict) -> dict:
     }
 
 
+def _apply_remaining_defaults(data: dict) -> None:
+    data.setdefault(DATA_PROMPT, DEFAULT_PROMPT_I2V)
+    data.setdefault(DATA_DURATION, DEFAULT_DURATION_SECONDS)
+    data.setdefault(DATA_FPS, FPS_CHOICES[0])
+    data.setdefault(DATA_STEPS, DEFAULT_INFERENCE_STEPS)
+    data.setdefault(DATA_QUALITY, DEFAULT_VIDEO_QUALITY)
+
+
+async def skip_all(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    message = update.message
+    if DATA_INPUT_IMAGE not in context.user_data:
+        if message is not None:
+            await message.reply_text("Сначала пришлите исходное изображение.")
+        return WAIT_INPUT_IMAGE
+
+    _apply_remaining_defaults(context.user_data)
+    context.user_data.pop(DATA_LAST_IMAGE, None)
+
+    if message is not None:
+        await message.reply_text(
+            "Применяю значения по умолчанию для оставшихся параметров и запускаю генерацию...",
+            reply_markup=_remove_keyboard(),
+        )
+
+    return await _submit_and_wait(update, context)
+
+
+async def _send_result_video(
+    *,
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    video_file: io.BytesIO,
+    caption: str,
+) -> None:
+    try:
+        await context.bot.send_video(
+            chat_id=chat_id,
+            video=video_file,
+            caption=caption,
+            supports_streaming=True,
+            connect_timeout=TELEGRAM_CONNECT_TIMEOUT,
+            pool_timeout=TELEGRAM_POOL_TIMEOUT,
+            read_timeout=TELEGRAM_READ_TIMEOUT,
+            write_timeout=TELEGRAM_WRITE_TIMEOUT,
+        )
+        return
+    except TimedOut:
+        logger.warning("send_video timed out for chat %s, retrying as document", chat_id)
+
+    video_file.seek(0)
+    await context.bot.send_document(
+        chat_id=chat_id,
+        document=video_file,
+        caption=caption,
+        connect_timeout=TELEGRAM_CONNECT_TIMEOUT,
+        pool_timeout=TELEGRAM_POOL_TIMEOUT,
+        read_timeout=TELEGRAM_READ_TIMEOUT,
+        write_timeout=TELEGRAM_WRITE_TIMEOUT,
+    )
+
+
 async def _submit_and_wait(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     message = update.message
     if message is None:
@@ -349,8 +419,6 @@ async def _submit_and_wait(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         job_id = await backend_client.submit_job(payload)
         await submit_msg.edit_text(f"Задача создана: `{job_id}`\nСтатус: в очереди", parse_mode="Markdown")
 
-        last_status_push = time.monotonic()
-
         while True:
             await asyncio.sleep(settings.poll_interval_seconds)
             status = await backend_client.get_job_status(job_id)
@@ -360,11 +428,6 @@ async def _submit_and_wait(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
             if status.status == "failed":
                 raise BackendApiError(status.error or "Сервер генерации вернул ошибку")
-
-            now = time.monotonic()
-            if now - last_status_push >= settings.status_update_seconds:
-                await message.reply_text(f"Задача `{job_id}` в обработке...", parse_mode="Markdown")
-                last_status_push = now
 
         await context.bot.send_chat_action(chat_id=message.chat_id, action=ChatAction.UPLOAD_VIDEO)
         video_bytes = await backend_client.download_video(job_id)
@@ -377,11 +440,11 @@ async def _submit_and_wait(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         if status.seed is not None:
             caption += f", seed={status.seed}"
 
-        await context.bot.send_video(
+        await _send_result_video(
+            context=context,
             chat_id=message.chat_id,
-            video=video_file,
+            video_file=video_file,
             caption=caption,
-            supports_streaming=True,
         )
     except BackendApiError as exc:
         logger.exception("Generation failed (backend error)")
@@ -411,7 +474,16 @@ async def skip_last_image(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 def build_application() -> Application:
-    app = Application.builder().token(settings.telegram_bot_token).build()
+    app = (
+        Application.builder()
+        .token(settings.telegram_bot_token)
+        .connect_timeout(TELEGRAM_CONNECT_TIMEOUT)
+        .pool_timeout(TELEGRAM_POOL_TIMEOUT)
+        .read_timeout(TELEGRAM_READ_TIMEOUT)
+        .write_timeout(TELEGRAM_WRITE_TIMEOUT)
+        .media_write_timeout(TELEGRAM_MEDIA_WRITE_TIMEOUT)
+        .build()
+    )
 
     conversation = ConversationHandler(
         entry_points=[CommandHandler("generate", generate_entry)],
@@ -420,27 +492,39 @@ def build_application() -> Application:
                 MessageHandler(filters.PHOTO | filters.Document.IMAGE, receive_input_image),
             ],
             WAIT_PROMPT: [
+                CommandHandler("skip_all", skip_all),
                 CommandHandler("skip", skip_prompt),
+                MessageHandler(filters.Regex(SKIP_ALL_PATTERN), skip_all),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_prompt),
             ],
             WAIT_DURATION: [
+                CommandHandler("skip_all", skip_all),
                 CommandHandler("skip", skip_duration),
+                MessageHandler(filters.Regex(SKIP_ALL_PATTERN), skip_all),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_duration),
             ],
             WAIT_FPS: [
+                CommandHandler("skip_all", skip_all),
                 CommandHandler("skip", skip_fps),
+                MessageHandler(filters.Regex(SKIP_ALL_PATTERN), skip_all),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_fps),
             ],
             WAIT_STEPS: [
+                CommandHandler("skip_all", skip_all),
                 CommandHandler("skip", skip_steps),
+                MessageHandler(filters.Regex(SKIP_ALL_PATTERN), skip_all),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_steps),
             ],
             WAIT_QUALITY: [
+                CommandHandler("skip_all", skip_all),
                 CommandHandler("skip", skip_quality),
+                MessageHandler(filters.Regex(SKIP_ALL_PATTERN), skip_all),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_quality),
             ],
             WAIT_LAST_IMAGE: [
+                CommandHandler("skip_all", skip_all),
                 CommandHandler("skip", skip_last_image),
+                MessageHandler(filters.Regex(SKIP_ALL_PATTERN), skip_all),
                 MessageHandler(filters.PHOTO | filters.Document.IMAGE, receive_last_image),
             ],
         },
