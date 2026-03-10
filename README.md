@@ -42,6 +42,11 @@ curl http://localhost:8000/healthz
 - **Dockerfile Path**: `services/runpod-worker/Dockerfile`
 - Если есть поле **Build Context Path**: `.` (корень репозитория)
 
+Требование по диску:
+- для модели `TestOrganizationPleaseIgnore/WAMU_v2_WAN2.2_I2V_LIGHTNING` нужно существенно больше 5 GB
+- ориентир: минимум `70-80 GB` свободного места под кэш/загрузку модели
+- при наличии volume лучше использовать его как кэш (`WAN22_CACHE_DIR=/runpod-volume/hf-cache`)
+
 Почему так: Dockerfile воркера настроен на сборку из контекста корня репозитория и копирует файлы через `services/runpod-worker/...`.
 
 Если раньше вы видели ошибку `runpod/pytorch:...: not found`, это было из-за несуществующего base image тега. В актуальном `Dockerfile` это исправлено.

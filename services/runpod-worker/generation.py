@@ -36,6 +36,7 @@ import aoti
 
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
 warnings.filterwarnings("ignore")
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
 # RunPod base images may set HF_HUB_ENABLE_HF_TRANSFER=1.
 # If hf_transfer isn't available, force standard download mode instead of crashing.
@@ -46,7 +47,12 @@ if os.getenv("HF_HUB_ENABLE_HF_TRANSFER") == "1":
         os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
 
 MODEL_ID = "TestOrganizationPleaseIgnore/WAMU_v2_WAN2.2_I2V_LIGHTNING"
-CACHE_DIR = os.path.expanduser("~/.cache/huggingface/")
+DEFAULT_CACHE_DIR = (
+    "/runpod-volume/hf-cache" if os.path.isdir("/runpod-volume") else os.path.expanduser("~/.cache/huggingface/")
+)
+CACHE_DIR = os.getenv("WAN22_CACHE_DIR", DEFAULT_CACHE_DIR)
+MODEL_DOWNLOAD_SIZE_GB_APPROX = 64.2
+MIN_RECOMMENDED_FREE_DISK_GB = float(os.getenv("WAN22_MIN_FREE_DISK_GB", "80"))
 
 MAX_DIM = 832
 MIN_DIM = 480
@@ -93,6 +99,21 @@ class GenerationResult:
 def clear_vram() -> None:
     gc.collect()
     torch.cuda.empty_cache()
+
+
+def ensure_sufficient_disk_for_model_download(cache_dir: str) -> None:
+    os.makedirs(cache_dir, exist_ok=True)
+    free_bytes = shutil.disk_usage(cache_dir).free
+    free_gb = free_bytes / (1024**3)
+    if free_gb >= MIN_RECOMMENDED_FREE_DISK_GB:
+        return
+
+    raise RuntimeError(
+        "Insufficient disk space for model download. "
+        f"Free: {free_gb:.1f} GB, required: >= {MIN_RECOMMENDED_FREE_DISK_GB:.0f} GB. "
+        f"Model repository size is ~{MODEL_DOWNLOAD_SIZE_GB_APPROX:.1f} GB. "
+        "Increase RunPod disk size or mount a larger volume and set WAN22_CACHE_DIR."
+    )
 
 
 def resize_image(image: Image.Image) -> Image.Image:
@@ -181,13 +202,12 @@ class Wan22Generator:
         return rife_model
 
     def _load_pipeline(self) -> WanImageToVideoPipeline:
+        ensure_sufficient_disk_for_model_download(CACHE_DIR)
         pipe = WanImageToVideoPipeline.from_pretrained(
             MODEL_ID,
             torch_dtype=torch.bfloat16,
+            cache_dir=CACHE_DIR,
         ).to("cuda")
-
-        if os.path.exists(CACHE_DIR):
-            shutil.rmtree(CACHE_DIR)
 
         quantize_(pipe.text_encoder, Int8WeightOnlyConfig())
         quantize_(pipe.transformer, Float8DynamicActivationFloat8WeightConfig())
