@@ -54,7 +54,7 @@ DATA_DURATION: Final[str] = "duration_seconds"
 DATA_FPS: Final[str] = "fps"
 DATA_STEPS: Final[str] = "inference_steps"
 DATA_QUALITY: Final[str] = "video_quality"
-SKIP_ALL_PATTERN: Final[str] = r"^/skip-all(?:@[\w_]+)?$"
+SKIP_ALL_PATTERN: Final[str] = r"^/skip_all(?:@[\w_]+)?$"
 
 TELEGRAM_CONNECT_TIMEOUT: Final[int] = 60
 TELEGRAM_POOL_TIMEOUT: Final[int] = 60
@@ -132,7 +132,7 @@ async def start(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         "Этот бот генерирует видео через Wan2.2 I2V (RunPod).\n"
         "Команды:\n"
         "/generate - создать видео\n"
-        "/skip-all - после загрузки фото сразу проставить остальные параметры по умолчанию\n"
+        "/skip_all - после загрузки фото сразу проставить остальные параметры по умолчанию\n"
         "/cancel - отменить текущий диалог"
     )
 
@@ -169,7 +169,7 @@ async def receive_input_image(update: Update, context: ContextTypes.DEFAULT_TYPE
     await update.message.reply_text(
         "Шаг 2/7. Введите промпт.\n"
         f"Можно /skip для значения по умолчанию:\n`{DEFAULT_PROMPT_I2V}`\n"
-        "Или /skip-all, чтобы сразу запустить генерацию с дефолтами.",
+        "Или /skip_all, чтобы сразу запустить генерацию с дефолтами.",
         parse_mode="Markdown",
     )
     return WAIT_PROMPT
