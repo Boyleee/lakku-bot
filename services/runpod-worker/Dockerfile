@@ -19,6 +19,7 @@ RUN set -eux; \
     cp "$SRC/requirements.txt" /app/requirements.txt; \
     python -m pip install --no-cache-dir --upgrade pip setuptools wheel; \
     python -m pip install --no-cache-dir --no-build-isolation -r /app/requirements.txt; \
+    python "$SRC/dependency_smoke_check.py"; \
     cp "$SRC/handler.py" /app/handler.py; \
     cp "$SRC/generation.py" /app/generation.py; \
     cp "$SRC/aoti.py" /app/aoti.py; \
