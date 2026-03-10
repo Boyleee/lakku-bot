@@ -168,9 +168,8 @@ async def receive_input_image(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data[DATA_INPUT_IMAGE] = image_b64
     await update.message.reply_text(
         "Шаг 2/7. Введите промпт.\n"
-        f"Можно /skip для значения по умолчанию:\n`{DEFAULT_PROMPT_I2V}`\n"
+        f"Можно /skip для значения по умолчанию:\n{DEFAULT_PROMPT_I2V}\n"
         "Или /skip_all, чтобы сразу запустить генерацию с дефолтами.",
-        parse_mode="Markdown",
     )
     return WAIT_PROMPT
 
