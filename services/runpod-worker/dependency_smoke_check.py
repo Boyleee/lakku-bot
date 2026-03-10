@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib
-import sys
 
 MODULES = [
     "torch",
@@ -20,11 +19,8 @@ MODULES = [
     "imageio",
     "imageio_ffmpeg",
     "cv2",
-    "torchao",
     "huggingface_hub",
     "hf_transfer",
-    "spaces",
-    "spaces.zero.torch.aoti",
     "runpod",
     "pydantic",
     "tqdm",

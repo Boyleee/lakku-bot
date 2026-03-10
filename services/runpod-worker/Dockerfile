@@ -22,7 +22,6 @@ RUN set -eux; \
     python "$SRC/dependency_smoke_check.py"; \
     cp "$SRC/handler.py" /app/handler.py; \
     cp "$SRC/generation.py" /app/generation.py; \
-    cp "$SRC/aoti.py" /app/aoti.py; \
     cp -R "$SRC/model" /app/model
 
 CMD ["python", "-u", "handler.py"]

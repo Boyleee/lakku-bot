@@ -7,7 +7,6 @@
 - `services/runpod-worker/Dockerfile`
 - `services/runpod-worker/handler.py`
 - `services/runpod-worker/generation.py`
-- `services/runpod-worker/aoti.py`
 - `services/runpod-worker/requirements.txt`
 - `services/runpod-worker/model/...`
 
@@ -18,6 +17,7 @@
 - `Branch`: `main` (или ваш branch)
 - `Dockerfile Path`: `services/runpod-worker/Dockerfile`
 - Если есть `Build Context Path`: `.`
+- В конфигурации воркера/endpoint выберите GPU `NVIDIA A100` (например, `A100 SXM`/`A100 PCIe`)
 
 После сохранения дождитесь завершения build/deploy.
 
@@ -31,6 +31,10 @@
   - `numpy` задан с маркерами версий (для `py<3.12` и `py>=3.12`)
 - В Docker build добавлена автоматическая проверка импортов критичных модулей воркера.
   Если не хватает зависимости, сборка завершится ошибкой с полным списком модулей.
+- Воркер зафиксирован под `NVIDIA A100 (SM 8.0)`:
+  - на других GPU он завершится с явной ошибкой в startup/runtime
+  - логика инференса фиксированная: `BF16` без квантования и без runtime fallback
+  - seed по умолчанию фиксируется через `WAN22_DEFAULT_SEED` (по умолчанию `42`)
 - По хранилищу: эта модель занимает десятки гигабайт.
   Практический минимум свободного места для старта: `70-80 GB`.
   При 5 GB воркер не сможет загрузить веса (ошибка `No space left on device`).

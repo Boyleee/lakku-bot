@@ -3,12 +3,13 @@ from __future__ import annotations
 import copy
 import gc
 import os
-import random
 import shutil
 import subprocess
 import tempfile
 import warnings
 from dataclasses import dataclass
+
+os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
 import numpy as np
 import torch
@@ -25,14 +26,7 @@ from diffusers import (
 from diffusers.pipelines.wan.pipeline_wan_i2v import WanImageToVideoPipeline
 from diffusers.utils.export_utils import export_to_video
 from torch.nn import functional as F
-from torchao.quantization import (
-    Float8DynamicActivationFloat8WeightConfig,
-    Int8WeightOnlyConfig,
-    quantize_,
-)
 from tqdm import tqdm
-
-import aoti
 
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
 warnings.filterwarnings("ignore")
@@ -53,6 +47,7 @@ DEFAULT_CACHE_DIR = (
 CACHE_DIR = os.getenv("WAN22_CACHE_DIR", DEFAULT_CACHE_DIR)
 MODEL_DOWNLOAD_SIZE_GB_APPROX = 64.2
 MIN_RECOMMENDED_FREE_DISK_GB = float(os.getenv("WAN22_MIN_FREE_DISK_GB", "80"))
+DEFAULT_SEED = int(os.getenv("WAN22_DEFAULT_SEED", "42"))
 
 MAX_DIM = 832
 MIN_DIM = 480
@@ -116,6 +111,27 @@ def ensure_sufficient_disk_for_model_download(cache_dir: str) -> None:
     )
 
 
+def ensure_a100_runtime() -> None:
+    if not torch.cuda.is_available():
+        raise RuntimeError("This worker is configured for NVIDIA A100 but CUDA is not available.")
+
+    major, minor = torch.cuda.get_device_capability()
+    gpu_name = torch.cuda.get_device_name(0)
+    if major != 8 or minor != 0 or "a100" not in gpu_name.lower():
+        raise RuntimeError(
+            "This worker is optimized and locked for NVIDIA A100 only. "
+            f"Detected GPU: {gpu_name} (SM {major}.{minor})."
+        )
+
+
+def configure_deterministic_runtime() -> None:
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
+    torch.use_deterministic_algorithms(True, warn_only=True)
+
+
 def resize_image(image: Image.Image) -> Image.Image:
     width, height = image.size
     if width == height:
@@ -173,7 +189,9 @@ def get_num_frames(duration_seconds: float) -> int:
 
 class Wan22Generator:
     def __init__(self) -> None:
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        ensure_a100_runtime()
+        configure_deterministic_runtime()
+        self.device = torch.device("cuda")
         self.rife_model = self._load_rife_model()
         self.pipe = self._load_pipeline()
         self.original_scheduler = copy.deepcopy(self.pipe.scheduler)
@@ -209,12 +227,7 @@ class Wan22Generator:
             cache_dir=CACHE_DIR,
         ).to("cuda")
 
-        quantize_(pipe.text_encoder, Int8WeightOnlyConfig())
-        quantize_(pipe.transformer, Float8DynamicActivationFloat8WeightConfig())
-        quantize_(pipe.transformer_2, Float8DynamicActivationFloat8WeightConfig())
-
-        aoti.aoti_blocks_load(pipe.transformer, "zerogpu-aoti/Wan2", variant="fp8da")
-        aoti.aoti_blocks_load(pipe.transformer_2, "zerogpu-aoti/Wan2", variant="fp8da")
+        print("Using deterministic A100 path with native BF16 inference (no quantization).")
 
         return pipe
 
@@ -372,7 +385,10 @@ class Wan22Generator:
             raise ValueError("input_image is required")
 
         num_frames = get_num_frames(duration_seconds)
-        current_seed = random.randint(0, MAX_SEED) if seed is None else int(seed)
+        current_seed = DEFAULT_SEED if seed is None else int(seed)
+        torch.manual_seed(current_seed)
+        np.random.seed(current_seed)
+        torch.cuda.manual_seed_all(current_seed)
         resized_image = resize_image(input_image)
 
         processed_last_image = None
