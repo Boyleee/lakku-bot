@@ -42,6 +42,30 @@ class RunPodClient:
             "Content-Type": "application/json",
         }
 
+    @staticmethod
+    def _raise_for_status_with_hint(response: httpx.Response, *, path: str) -> None:
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code
+            body = exc.response.text.strip().replace("\n", " ")
+            body = body[:400] if body else "<empty>"
+
+            if status_code in (401, 403):
+                hint = (
+                    "Проверьте RUNPOD_API_KEY: ключ должен быть активным, с правами запуска serverless "
+                    "(read/write), и принадлежать тому же workspace/organization, что и endpoint. "
+                    "Передавайте ключ без префикса 'Bearer '."
+                )
+            elif status_code == 404:
+                hint = "Проверьте RUNPOD_ENDPOINT_ID (можно указывать только id без URL)."
+            else:
+                hint = "Проверьте логи RunPod endpoint и корректность входных параметров."
+
+            raise RunPodError(
+                f"RunPod HTTP {status_code} on '{path}'. {hint} Response: {body}"
+            ) from exc
+
     async def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         timeout = httpx.Timeout(60)
         async with httpx.AsyncClient(timeout=timeout) as client:
@@ -50,7 +74,7 @@ class RunPodClient:
                 headers=self._headers,
                 json=payload,
             )
-            response.raise_for_status()
+            self._raise_for_status_with_hint(response, path=path)
             return response.json()
 
     async def _get(self, path: str) -> dict[str, Any]:
@@ -60,7 +84,7 @@ class RunPodClient:
                 f"{self._config.base_url}/{self._config.endpoint_id}/{path}",
                 headers=self._headers,
             )
-            response.raise_for_status()
+            self._raise_for_status_with_hint(response, path=path)
             return response.json()
 
     async def submit(self, model_input: dict[str, Any]) -> RunPodSubmissionResponse:

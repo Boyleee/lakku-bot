@@ -55,6 +55,8 @@ curl http://localhost:8000/healthz
 docker compose up -d --build
 ```
 
+Если получаете `403 Forbidden` при генерации, проверьте `RUNPOD_API_KEY` (права и workspace) и `RUNPOD_ENDPOINT_ID`. Детальный разбор: `docs/DEPLOY_RUNPOD_GITHUB_RU.md`.
+
 ## 3) Локальная проверка
 
 Проверка синтаксиса:

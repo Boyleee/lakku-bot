@@ -50,3 +50,21 @@ docker compose up -d --build
 - проверьте логи backend (`docker compose logs -f backend`)
 - проверьте состояние endpoint/build в RunPod UI
 - убедитесь, что `RUNPOD_ENDPOINT_ID` и `RUNPOD_API_KEY` актуальные
+
+## Частая ошибка: 403 Forbidden
+Если backend показывает `403 Forbidden` на `.../v2/<endpoint>/run`, почти всегда это:
+- неверный `RUNPOD_API_KEY`
+- ключ без нужных прав для serverless run
+- ключ из другого workspace/org
+
+Проверка с VPS:
+```bash
+curl -i -X POST "https://api.runpod.ai/v2/<endpoint_id>/run" \
+  -H "Authorization: Bearer <runpod_api_key>" \
+  -H "Content-Type: application/json" \
+  -d '{"input":{"ping":"ok"}}'
+```
+
+Ожидаемо:
+- `200/202` -> доступ к endpoint есть
+- `401/403` -> проблема в ключе/правах/workspace
