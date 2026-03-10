@@ -69,7 +69,19 @@ def _fps_keyboard() -> ReplyKeyboardMarkup:
 
 
 def _remove_keyboard() -> ReplyKeyboardRemove:
-    return ReplyKeyboardRemove(remove_keyboard=True)
+    return ReplyKeyboardRemove()
+
+
+async def _on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    logger.exception("Unhandled bot error", exc_info=context.error)
+
+    if isinstance(update, Update) and update.message is not None:
+        try:
+            await update.message.reply_text(
+                "Произошла внутренняя ошибка бота. Попробуйте еще раз через пару секунд."
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to send error message to user")
 
 
 async def _download_image_base64(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str | None:
@@ -439,6 +451,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("cancel", cancel))
     app.add_handler(conversation)
+    app.add_error_handler(_on_error)
     return app
 
 
