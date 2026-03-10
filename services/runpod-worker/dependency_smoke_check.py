@@ -22,6 +22,7 @@ MODULES = [
     "cv2",
     "torchao",
     "huggingface_hub",
+    "hf_transfer",
     "spaces",
     "spaces.zero.torch.aoti",
     "runpod",

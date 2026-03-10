@@ -37,6 +37,14 @@ import aoti
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
 warnings.filterwarnings("ignore")
 
+# RunPod base images may set HF_HUB_ENABLE_HF_TRANSFER=1.
+# If hf_transfer isn't available, force standard download mode instead of crashing.
+if os.getenv("HF_HUB_ENABLE_HF_TRANSFER") == "1":
+    try:
+        import hf_transfer  # noqa: F401
+    except Exception:  # noqa: BLE001
+        os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
+
 MODEL_ID = "TestOrganizationPleaseIgnore/WAMU_v2_WAN2.2_I2V_LIGHTNING"
 CACHE_DIR = os.path.expanduser("~/.cache/huggingface/")
 
