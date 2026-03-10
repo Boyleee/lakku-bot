@@ -45,6 +45,7 @@ curl http://localhost:8000/healthz
 Почему так: Dockerfile воркера настроен на сборку из контекста корня репозитория и копирует файлы через `services/runpod-worker/...`.
 
 Если раньше вы видели ошибку `runpod/pytorch:...: not found`, это было из-за несуществующего base image тега. В актуальном `Dockerfile` это исправлено.
+Если видели ошибку `pkgutil.ImpImporter` на шаге `pip install`, это исправлено в текущем `Dockerfile` (обновление pip/setuptools/wheel + `--no-build-isolation`).
 
 После сборки и запуска endpoint:
 1. Скопируйте `Endpoint ID`.

@@ -9,7 +9,9 @@ imageio
 imageio-ffmpeg
 opencv-python
 torchao==0.11.0
-numpy>=1.16,<=1.23.5
+# HF Space pin for <=py3.11; Python 3.12 in current RunPod base needs newer numpy.
+numpy>=1.16,<=1.23.5; python_version < "3.12"
+numpy>=1.26,<2.0; python_version >= "3.12"
 torchvision
 pillow
 tqdm

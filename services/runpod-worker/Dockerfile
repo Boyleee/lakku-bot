@@ -17,7 +17,8 @@ COPY . /src
 RUN set -eux; \
     if [ -d /src/services/runpod-worker ]; then SRC=/src/services/runpod-worker; else SRC=/src; fi; \
     cp "$SRC/requirements.txt" /app/requirements.txt; \
-    pip install --no-cache-dir -r /app/requirements.txt; \
+    python -m pip install --no-cache-dir --upgrade pip setuptools wheel; \
+    python -m pip install --no-cache-dir --no-build-isolation -r /app/requirements.txt; \
     cp "$SRC/handler.py" /app/handler.py; \
     cp "$SRC/generation.py" /app/generation.py; \
     cp "$SRC/aoti.py" /app/aoti.py; \
