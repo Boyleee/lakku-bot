@@ -10,6 +10,7 @@ import warnings
 from dataclasses import dataclass
 
 os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 import numpy as np
 import torch
@@ -26,7 +27,14 @@ from diffusers import (
 from diffusers.pipelines.wan.pipeline_wan_i2v import WanImageToVideoPipeline
 from diffusers.utils.export_utils import export_to_video
 from torch.nn import functional as F
+from torchao.quantization import (
+    Float8DynamicActivationFloat8WeightConfig,
+    Int8WeightOnlyConfig,
+    quantize_,
+)
 from tqdm import tqdm
+
+import aoti
 
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
 warnings.filterwarnings("ignore")
@@ -111,15 +119,16 @@ def ensure_sufficient_disk_for_model_download(cache_dir: str) -> None:
     )
 
 
-def ensure_a100_runtime() -> None:
+def ensure_fp8_runtime() -> None:
     if not torch.cuda.is_available():
-        raise RuntimeError("This worker is configured for NVIDIA A100 but CUDA is not available.")
+        raise RuntimeError("This worker is configured for FP8 CUDA inference but CUDA is not available.")
 
     major, minor = torch.cuda.get_device_capability()
     gpu_name = torch.cuda.get_device_name(0)
-    if major != 8 or minor != 0 or "a100" not in gpu_name.lower():
+    if major < 8 or (major == 8 and minor < 9):
         raise RuntimeError(
-            "This worker is optimized and locked for NVIDIA A100 only. "
+            "FP8 dynamic activation quantization requires CUDA SM 8.9+. "
+            "Use H100/H200/L40S or other compatible GPU. "
             f"Detected GPU: {gpu_name} (SM {major}.{minor})."
         )
 
@@ -189,7 +198,7 @@ def get_num_frames(duration_seconds: float) -> int:
 
 class Wan22Generator:
     def __init__(self) -> None:
-        ensure_a100_runtime()
+        ensure_fp8_runtime()
         configure_deterministic_runtime()
         self.device = torch.device("cuda")
         self.rife_model = self._load_rife_model()
@@ -227,7 +236,12 @@ class Wan22Generator:
             cache_dir=CACHE_DIR,
         ).to("cuda")
 
-        print("Using deterministic A100 path with native BF16 inference (no quantization).")
+        print("Using deterministic FP8 path with AOTI blocks.")
+        quantize_(pipe.text_encoder, Int8WeightOnlyConfig())
+        quantize_(pipe.transformer, Float8DynamicActivationFloat8WeightConfig())
+        quantize_(pipe.transformer_2, Float8DynamicActivationFloat8WeightConfig())
+        aoti.aoti_blocks_load(pipe.transformer, "zerogpu-aoti/Wan2", variant="fp8da")
+        aoti.aoti_blocks_load(pipe.transformer_2, "zerogpu-aoti/Wan2", variant="fp8da")
 
         return pipe
 
